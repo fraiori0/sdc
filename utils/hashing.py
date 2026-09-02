@@ -61,6 +61,15 @@ def hamming(a, b):
     return 0.5 * (nbit - torch.matmul(a, b.t()))  # (Na, nbit) * (nbit, Nb)
 
 
+def overlap(a, b):
+    """
+    Sum-AND similarity on {0, 1} codes, negated so that it behaves as a distance:
+    more shared active bits -> smaller value, which is what `get_rank` (largest=False)
+    expects. Only defined for `code_domain='unit'`.
+    """
+    return -torch.matmul(a, b.t())  # (Na, nbit) * (nbit, Nb)
+
+
 def euclidean(a, b):
     # dist = (a.unsqueeze(1) - b.unsqueeze(0)) ** 2
     # dist = dist.sum(dim=-1)
@@ -79,6 +88,8 @@ def cosine(a, b):
 def get_distance_func(distance_func):
     if distance_func == 'hamming':
         return hamming
+    elif distance_func == 'overlap':
+        return overlap
     elif distance_func == 'euclidean':
         return euclidean
     elif distance_func == 'cosine':
@@ -156,17 +167,86 @@ def compute_distance_batch(dist_f, gallery_codes, query_codes, bs_g=32, bs_q=102
     return dist
 
 
-def preprocess_on_codes(codes, threshold=0., sign=True, avoid_clone=False):
+CODE_DOMAINS = ('signed', 'unit')
+
+
+def validate_code_domain(codes, code_domain='signed', dist_metric=None, sign=True,
+                         threshold=0., tol=1e-6):
+    """
+    Loud, cheap guard against the [0,1] vs {-1,+1} domain trap.
+
+    Feeding [0,1] codes to the signed path fails *silently*: `torch.sign` maps them to
+    {0, 1} (not {-1, +1}) and `hamming` then returns plausible-looking, meaningless
+    numbers (even non-integer ones) with no error raised.
+    """
+    if code_domain not in CODE_DOMAINS:
+        raise ValueError(f'Unknown code_domain `{code_domain}`, expected one of {CODE_DOMAINS}.')
+
+    if dist_metric == 'overlap' and code_domain != 'unit':
+        raise ValueError('Distance function `overlap` is a sum-AND on {0, 1} codes and requires '
+                         f'code_domain=`unit`, got code_domain=`{code_domain}`.')
+
+    cmin, cmax = codes.min().item(), codes.max().item()
+
+    if code_domain == 'unit':
+        if threshold != 0:
+            raise ValueError('`threshold` is the ternary/DBQ margin around 0 and is meaningless '
+                             f'for unit-domain codes, got threshold={threshold}. Use threshold=0 '
+                             'with code_domain=`unit`.')
+        if cmin < -tol or cmax > 1 + tol:
+            raise ValueError('code_domain=`unit` expects codes in [0, 1], got '
+                             f'[{cmin:.6g}, {cmax:.6g}]. Mean-centering (`zero_mean_eval`) or a '
+                             'signed model output are the usual causes.')
+    elif sign and cmin >= 0:
+        # all-non-negative codes about to be passed through torch.sign is exactly the
+        # signature of the silent failure described above
+        raise ValueError('code_domain=`signed` expects codes straddling 0, but all values are '
+                         f'non-negative ([{cmin:.6g}, {cmax:.6g}]). torch.sign would map them to '
+                         '{0, 1} and the resulting distances would be meaningless. '
+                         'Did you mean code_domain=`unit`?')
+
+
+def preprocess_on_codes(codes, threshold=0., sign=True, avoid_clone=False,
+                        code_domain='signed', dist_metric=None):
+    """
+    Binarize codes ahead of ranking.
+
+    code_domain: `signed` (default) -> codes live in R with the decision boundary at 0 and
+                 binarize to {-1, +1}; this is the original behaviour of this repo.
+                 `unit` -> codes live in [0, 1] with the decision boundary at 0.5.
+    dist_metric: only consulted in the unit domain, where the binarization target depends
+                 on the metric: {0, 1} for `overlap`, {-1, +1} for `hamming`.
+    sign:        keeps its original meaning (binarize with torch.sign) in the signed domain.
+    """
+    validate_code_domain(codes, code_domain, dist_metric, sign, threshold)
+
     # clone in case changing value of the original codes
     if not avoid_clone:
         codes = codes.clone()
 
-    # if value within margin, set to 0, for ternary/dbq
-    if threshold != 0:
-        codes[codes.abs() < threshold] = 0
+    if code_domain == 'signed':
+        # if value within margin, set to 0, for ternary/dbq
+        if threshold != 0:
+            codes[codes.abs() < threshold] = 0
 
-    if sign:
-        codes = torch.sign(codes)  # (ndb, nbit)
+        if sign:
+            codes = torch.sign(codes)  # (ndb, nbit)
+
+        return codes
+
+    # unit domain: binarize at 0.5, never with torch.sign.
+    # `> 0.5` matches the active-bit predicate used to report kappa, so the realised
+    # sparsity at eval is the same quantity the loss logs during training.
+    if dist_metric == 'overlap':
+        codes = (codes > 0.5).to(codes.dtype)  # {0, 1}
+    elif dist_metric == 'hamming':
+        # sign(z - 0.5), with the z == 0.5 tie resolved deterministically instead of
+        # torch.sign's 0, which would not be a valid code value
+        codes = torch.where(codes > 0.5,
+                            torch.ones_like(codes),
+                            -torch.ones_like(codes))  # {-1, +1}
+    # else (euclidean/cosine): the raw [0, 1] codes are consumed as-is, mirroring the
+    # signed domain, where those metrics also skip binarization
 
     return codes
 
@@ -182,7 +262,7 @@ def calculate_mAP(db_codes, db_labels,
                   Rs, threshold=0., dist_metric='hamming',
                   PRs=None,
                   landmark_gt=None, db_id=None, test_id=None,
-                  multiclass=False):
+                  multiclass=False, code_domain='signed'):
     if landmark_gt is not None:
         assert db_id is not None and test_id is not None
 
@@ -192,8 +272,10 @@ def calculate_mAP(db_codes, db_labels,
     avoid_clone = landmark_gt is not None
 
     ##### preprocess on codes #####
-    db_codes = preprocess_on_codes(db_codes, threshold, dist_metric == 'hamming', avoid_clone)
-    test_codes = preprocess_on_codes(test_codes, threshold, dist_metric == 'hamming', avoid_clone)
+    db_codes = preprocess_on_codes(db_codes, threshold, dist_metric == 'hamming', avoid_clone,
+                                   code_domain=code_domain, dist_metric=dist_metric)
+    test_codes = preprocess_on_codes(test_codes, threshold, dist_metric == 'hamming', avoid_clone,
+                                     code_domain=code_domain, dist_metric=dist_metric)
     db_labels = db_labels.cpu()  # .numpy()
     test_labels = test_labels.cpu()  # .numpy()
 
@@ -366,13 +448,15 @@ def calculate_mAP(db_codes, db_labels,
 
 def calculate_pr_curve(db_codes, db_labels,
                        test_codes, test_labels,
-                       threshold=0., dist_metric='hamming'):
+                       threshold=0., dist_metric='hamming', code_domain='signed'):
     gc.collect()
     torch.cuda.empty_cache()
 
     ##### preprocess on codes #####
-    db_codes = preprocess_on_codes(db_codes, threshold, dist_metric == 'hamming')
-    test_codes = preprocess_on_codes(test_codes, threshold, dist_metric == 'hamming')
+    db_codes = preprocess_on_codes(db_codes, threshold, dist_metric == 'hamming',
+                                   code_domain=code_domain, dist_metric=dist_metric)
+    test_codes = preprocess_on_codes(test_codes, threshold, dist_metric == 'hamming',
+                                     code_domain=code_domain, dist_metric=dist_metric)
     db_labels = db_labels.cpu()  # .numpy()
     test_labels = test_labels.cpu()  # .numpy()
 

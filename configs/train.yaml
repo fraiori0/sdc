@@ -16,6 +16,9 @@ batch_size: 64
 epochs: 100
 backbone_lr_scale: 1
 dist_metric: "hamming"
+# `signed` = codes in R, decision boundary at 0 ({-1,+1});
+# `unit`   = codes in [0,1], decision boundary at 0.5. See utils/hashing.py.
+code_domain: "signed"
 
 exp: "hashing"
 tag: ""

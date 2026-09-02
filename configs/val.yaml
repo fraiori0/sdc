@@ -20,6 +20,7 @@ PRs: [ 1, 5, 10 ]
 
 batch_size: 64
 dist_metric: "hamming"
+code_domain: null  # null = keep whatever the trained config saved
 ternary_threshold: 0
 
 exp: "validation"

@@ -230,6 +230,7 @@ class RetrievalExperiment:
             mAP, recalls, precisions = calculate_mAP(db_out[codes_name] - mean, db_out['labels'],
                                                      test_out[codes_name] - mean, test_out['labels'],
                                                      config.dataset.R, dist_metric=config.dist_metric,
+                                                     code_domain=self.config.get('code_domain', 'signed'),
                                                      PRs=[1, 5, 10], landmark_gt=landmark_gt,
                                                      db_id=db_out.get('id'),
                                                      test_id=test_out.get('id'),

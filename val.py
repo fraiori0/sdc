@@ -21,6 +21,8 @@ def main(config: DictConfig):
         load_config.compute_mAP = config.compute_mAP
         load_config.ternary_threshold = config.ternary_threshold
         load_config.dist_metric = config.dist_metric
+        if config.get('code_domain') is not None:  # else keep the trained config's value
+            load_config.code_domain = config.code_domain
         load_config.batch_size = config.batch_size
         load_config.save_code = config.save_code
         load_config.wandb = False

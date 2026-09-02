@@ -97,6 +97,7 @@ class RetrievalEvaluation:
                                                               self.config.R,
                                                               threshold=self.config.ternary_threshold,
                                                               dist_metric=self.config.dist_metric,
+                                                              code_domain=self.config.get('code_domain', 'signed'),
                                                               PRs=self.config.PRs)
                     res['mAP' + postfix] = mAPs
                     res['recalls' + postfix] = recalls
@@ -120,7 +121,8 @@ class RetrievalEvaluation:
                     recalls, precisions, Rs = calculate_pr_curve(db_out[codes_name], db_labels,
                                                                  test_out[codes_name], test_labels,
                                                                  threshold=self.config.ternary_threshold,
-                                                                 dist_metric=self.config.dist_metric)
+                                                                 dist_metric=self.config.dist_metric,
+                                                                 code_domain=self.config.get('code_domain', 'signed'))
                     res['recalls' + postfix] = recalls
                     res['precisions' + postfix] = precisions
 
