@@ -1,0 +1,338 @@
+[
+  {
+    "logdir": "logs/cifar10/sbdr64_100/actclip_lambda2_0.8_42_260903_140239_755434",
+    "critic_order": 2,
+    "lambda2": 0.8,
+    "eps": 0.31,
+    "nbit": 64,
+    "db_size": 59000,
+    "test_size": 1000,
+    "R": 1000,
+    "mAP": {
+      "native": 0.45288656978309155,
+      "topk8": 0.457449908797862,
+      "topk16": 0.44441879257792605,
+      "topk32": 0.4376848097887123
+    },
+    "usage": {
+      "kappa_mean": 5.767322063446045,
+      "kappa_std": 1.3348495960235596,
+      "binarity": 0.9694806933403015,
+      "usage_mean": 0.09011439979076385,
+      "usage_std": 0.061336878687143326,
+      "dead_bits": 3,
+      "saturated_bits": 0,
+      "near_dead_bits": 3,
+      "near_saturated_bits": 0,
+      "nbit": 64
+    },
+    "overlap_distribution": {
+      "overlap_mean": 0.7434266805648804,
+      "overlap_std": 1.2728562355041504,
+      "n_distinct_values": 10,
+      "n_distinct_values_over_1pct_mass": 6,
+      "overlap_zero_frac": 0.6443901062011719,
+      "n_pairs_sampled": 4498500
+    },
+    "tie_block": {
+      "R": 1000,
+      "mean": 1856.5870361328125,
+      "std": 1113.08837890625,
+      "median": 1541.0,
+      "max": 16659
+    },
+    "false_negative": {
+      "false_negative_rate_mean": 0.3063200116157532,
+      "false_negative_rate_std": 0.36794596910476685,
+      "k": 50
+    },
+    "separation": {
+      "positive_pair_overlap_mean": 4.203125,
+      "positive_pair_overlap_std": 1.7652422189712524,
+      "random_pair_overlap_mean": 0.7616607546806335,
+      "random_pair_overlap_std": 1.2844734191894531,
+      "separation_ratio": 5.518368872454748,
+      "n_positive_pairs": 1024
+    }
+  },
+  {
+    "logdir": "logs/cifar10/sbdr64_100/actclip_lambda2_0_42_260903_114229_935907",
+    "critic_order": 2,
+    "lambda2": 0,
+    "eps": 0.31,
+    "nbit": 64,
+    "db_size": 59000,
+    "test_size": 1000,
+    "R": 1000,
+    "mAP": {
+      "native": 0.3883647316317074,
+      "topk8": 0.3922163706193678,
+      "topk16": 0.38784852111153306,
+      "topk32": 0.3684108536085114
+    },
+    "usage": {
+      "kappa_mean": 6.35805082321167,
+      "kappa_std": 1.6535626649856567,
+      "binarity": 0.9773678779602051,
+      "usage_mean": 0.09934455156326294,
+      "usage_std": 0.06180298328399658,
+      "dead_bits": 5,
+      "saturated_bits": 0,
+      "near_dead_bits": 6,
+      "near_saturated_bits": 0,
+      "nbit": 64
+    },
+    "overlap_distribution": {
+      "overlap_mean": 0.862695574760437,
+      "overlap_std": 1.7025784254074097,
+      "n_distinct_values": 11,
+      "n_distinct_values_over_1pct_mass": 8,
+      "overlap_zero_frac": 0.6735747456550598,
+      "n_pairs_sampled": 4498500
+    },
+    "tie_block": {
+      "R": 1000,
+      "mean": 3179.486083984375,
+      "std": 1976.9337158203125,
+      "median": 2972.0,
+      "max": 13122
+    },
+    "false_negative": {
+      "false_negative_rate_mean": 0.23477999866008759,
+      "false_negative_rate_std": 0.3639516532421112,
+      "k": 50
+    },
+    "separation": {
+      "positive_pair_overlap_mean": 4.8203125,
+      "positive_pair_overlap_std": 2.295164108276367,
+      "random_pair_overlap_mean": 0.8746618032455444,
+      "random_pair_overlap_std": 1.7161529064178467,
+      "separation_ratio": 5.511058653886124,
+      "n_positive_pairs": 1024
+    }
+  },
+  {
+    "logdir": "logs/cifar10/sbdr64_100/actclip_lambda2_1.6_42_260903_162230_586006",
+    "critic_order": 2,
+    "lambda2": 1.6,
+    "eps": 0.31,
+    "nbit": 64,
+    "db_size": 59000,
+    "test_size": 1000,
+    "R": 1000,
+    "mAP": {
+      "native": 0.5380179562492995,
+      "topk8": 0.5353179877835792,
+      "topk16": 0.5139986874674214,
+      "topk32": 0.5058519138437696
+    },
+    "usage": {
+      "kappa_mean": 4.329355716705322,
+      "kappa_std": 0.900063693523407,
+      "binarity": 0.9769372344017029,
+      "usage_mean": 0.06764619052410126,
+      "usage_std": 0.01717652939260006,
+      "dead_bits": 2,
+      "saturated_bits": 0,
+      "near_dead_bits": 2,
+      "near_saturated_bits": 0,
+      "nbit": 64
+    },
+    "overlap_distribution": {
+      "overlap_mean": 0.31135866045951843,
+      "overlap_std": 0.684184193611145,
+      "n_distinct_values": 8,
+      "n_distinct_values_over_1pct_mass": 4,
+      "overlap_zero_frac": 0.7816798686981201,
+      "n_pairs_sampled": 4498500
+    },
+    "tie_block": {
+      "R": 1000,
+      "mean": 1671.491943359375,
+      "std": 912.647216796875,
+      "median": 1369.0,
+      "max": 9241
+    },
+    "false_negative": {
+      "false_negative_rate_mean": 0.40011999011039734,
+      "false_negative_rate_std": 0.3744566738605499,
+      "k": 50
+    },
+    "separation": {
+      "positive_pair_overlap_mean": 3.85546875,
+      "positive_pair_overlap_std": 0.8263792395591736,
+      "random_pair_overlap_mean": 0.31323662400245667,
+      "random_pair_overlap_std": 0.6869916915893555,
+      "separation_ratio": 12.308486474971593,
+      "n_positive_pairs": 1024
+    }
+  },
+  {
+    "logdir": "logs/cifar10/sbdr64_100/actsigmoid_lambda2_0.8_42_260903_140237_691302",
+    "critic_order": 2,
+    "lambda2": 0.8,
+    "eps": 0.31,
+    "nbit": 64,
+    "db_size": 59000,
+    "test_size": 1000,
+    "R": 1000,
+    "mAP": {
+      "native": 0.4466862842699047,
+      "topk8": 0.4626909256947693,
+      "topk16": 0.459727923898492,
+      "topk32": 0.44997496002633125
+    },
+    "usage": {
+      "kappa_mean": 5.0524067878723145,
+      "kappa_std": 0.9870597720146179,
+      "binarity": 0.9723122119903564,
+      "usage_mean": 0.07894385606050491,
+      "usage_std": 0.012050306424498558,
+      "dead_bits": 0,
+      "saturated_bits": 0,
+      "near_dead_bits": 0,
+      "near_saturated_bits": 0,
+      "nbit": 64
+    },
+    "overlap_distribution": {
+      "overlap_mean": 0.40771278738975525,
+      "overlap_std": 0.845961332321167,
+      "n_distinct_values": 9,
+      "n_distinct_values_over_1pct_mass": 5,
+      "overlap_zero_frac": 0.7514851689338684,
+      "n_pairs_sampled": 4498500
+    },
+    "tie_block": {
+      "R": 1000,
+      "mean": 1456.073974609375,
+      "std": 569.859375,
+      "median": 1338.0,
+      "max": 5120
+    },
+    "false_negative": {
+      "false_negative_rate_mean": 0.33914002776145935,
+      "false_negative_rate_std": 0.3578878939151764,
+      "k": 50
+    },
+    "separation": {
+      "positive_pair_overlap_mean": 4.21875,
+      "positive_pair_overlap_std": 0.9762577414512634,
+      "random_pair_overlap_mean": 0.4025890827178955,
+      "random_pair_overlap_std": 0.8452246785163879,
+      "separation_ratio": 10.47904719998626,
+      "n_positive_pairs": 1024
+    }
+  },
+  {
+    "logdir": "logs/cifar10/sbdr64_100/actsigmoid_lambda2_0_42_260903_114228_464615",
+    "critic_order": 2,
+    "lambda2": 0,
+    "eps": 0.31,
+    "nbit": 64,
+    "db_size": 59000,
+    "test_size": 1000,
+    "R": 1000,
+    "mAP": {
+      "native": 0.27565648878435606,
+      "topk8": 0.2759346926910803,
+      "topk16": 0.27574489045445805,
+      "topk32": 0.2919906685177702
+    },
+    "usage": {
+      "kappa_mean": 9.178457260131836,
+      "kappa_std": 4.973640441894531,
+      "binarity": 0.9822632670402527,
+      "usage_mean": 0.14341340959072113,
+      "usage_std": 0.11416669189929962,
+      "dead_bits": 14,
+      "saturated_bits": 0,
+      "near_dead_bits": 15,
+      "near_saturated_bits": 0,
+      "nbit": 64
+    },
+    "overlap_distribution": {
+      "overlap_mean": 2.1270503997802734,
+      "overlap_std": 3.7963452339172363,
+      "n_distinct_values": 23,
+      "n_distinct_values_over_1pct_mass": 11,
+      "overlap_zero_frac": 0.5606037378311157,
+      "n_pairs_sampled": 4498500
+    },
+    "tie_block": {
+      "R": 1000,
+      "mean": 5162.15283203125,
+      "std": 4108.771484375,
+      "median": 3155.0,
+      "max": 25804
+    },
+    "false_negative": {
+      "false_negative_rate_mean": 0.1115799993276596,
+      "false_negative_rate_std": 0.29234597086906433,
+      "k": 50
+    },
+    "separation": {
+      "positive_pair_overlap_mean": 6.5830078125,
+      "positive_pair_overlap_std": 4.3832688331604,
+      "random_pair_overlap_mean": 2.1383728981018066,
+      "random_pair_overlap_std": 3.9291014671325684,
+      "separation_ratio": 3.078512554261987,
+      "n_positive_pairs": 1024
+    }
+  },
+  {
+    "logdir": "logs/cifar10/sbdr64_100/actsigmoid_lambda2_1.6_42_260903_162229_040729",
+    "critic_order": 2,
+    "lambda2": 1.6,
+    "eps": 0.31,
+    "nbit": 64,
+    "db_size": 59000,
+    "test_size": 1000,
+    "R": 1000,
+    "mAP": {
+      "native": 0.4767450673831627,
+      "topk8": 0.4879372905874625,
+      "topk16": 0.4892572320923209,
+      "topk32": 0.47730670480895787
+    },
+    "usage": {
+      "kappa_mean": 4.366576194763184,
+      "kappa_std": 0.9036133289337158,
+      "binarity": 0.9682865738868713,
+      "usage_mean": 0.06822775304317474,
+      "usage_std": 0.012777500785887241,
+      "dead_bits": 0,
+      "saturated_bits": 0,
+      "near_dead_bits": 0,
+      "near_saturated_bits": 0,
+      "nbit": 64
+    },
+    "overlap_distribution": {
+      "overlap_mean": 0.307698130607605,
+      "overlap_std": 0.6894770860671997,
+      "n_distinct_values": 8,
+      "n_distinct_values_over_1pct_mass": 4,
+      "overlap_zero_frac": 0.7892817854881287,
+      "n_pairs_sampled": 4498500
+    },
+    "tie_block": {
+      "R": 1000,
+      "mean": 1687.4749755859375,
+      "std": 863.0009155273438,
+      "median": 1387.0,
+      "max": 8129
+    },
+    "false_negative": {
+      "false_negative_rate_mean": 0.3430599868297577,
+      "false_negative_rate_std": 0.35307973623275757,
+      "k": 50
+    },
+    "separation": {
+      "positive_pair_overlap_mean": 3.7470703125,
+      "positive_pair_overlap_std": 0.8762597441673279,
+      "random_pair_overlap_mean": 0.30678626894950867,
+      "random_pair_overlap_std": 0.6877142190933228,
+      "separation_ratio": 12.213944011675107,
+      "n_positive_pairs": 1024
+    }
+  }
+]

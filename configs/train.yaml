@@ -19,6 +19,10 @@ dist_metric: "hamming"
 # `signed` = codes in R, decision boundary at 0 ({-1,+1});
 # `unit`   = codes in [0,1], decision boundary at 0.5. See utils/hashing.py.
 code_domain: "signed"
+# null = full mAP over all active bits (no override). int = keep only the top-k
+# largest continuous activations per sample before binarizing (unit domain only);
+# lets one run sweep an mAP-vs-kappa curve without retraining. See utils/hashing.py.
+topk_eval: null
 
 exp: "hashing"
 tag: ""

@@ -196,12 +196,87 @@ def test_calculate_mAP_end_to_end():
                         'straddling 0', 'unit codes through the default signed path')
 
 
+def test_topk_eval_forces_exact_kappa():
+    """
+    topk_eval must force exactly k active bits per sample, overriding whatever the
+    plain 0.5 threshold would have given -- that override is the entire point (an
+    *exact* per-sample kappa, since `eps` only sets kappa in expectation).
+    """
+    # row0: 4 values > 0.5 naturally; row1: 0 values > 0.5; row2: 1 value > 0.5.
+    # topk_eval=2 must select the top 2 by value in every row regardless.
+    z = torch.tensor([[0.9, 0.8, 0.6, 0.55, 0.1],
+                      [0.4, 0.3, 0.2, 0.10, 0.05],
+                      [0.9, 0.4, 0.3, 0.20, 0.10]])
+
+    plain = preprocess_on_codes(z, code_domain='unit', dist_metric='overlap')
+    exp_plain = torch.tensor([[1., 1., 1., 1., 0.],   # 4 actives (0.55 > 0.5)
+                              [0., 0., 0., 0., 0.],   # 0 actives
+                              [1., 0., 0., 0., 0.]])  # 1 active
+    assert torch.equal(plain, exp_plain), plain
+    assert torch.equal(plain.sum(1), torch.tensor([4., 0., 1.])), \
+        'sanity: the plain threshold gives a non-constant, non-2 kappa per row'
+
+    topk01 = preprocess_on_codes(z, code_domain='unit', dist_metric='overlap', topk_eval=2)
+    exp_topk01 = torch.tensor([[1., 1., 0., 0., 0.],   # top2 of row0: indices 0,1
+                               [1., 1., 0., 0., 0.],   # top2 of row1: indices 0,1 (forced active
+                               [1., 1., 0., 0., 0.]])  #   despite being < 0.5 under plain thresh)
+    assert torch.equal(topk01, exp_topk01), topk01
+    assert torch.equal(topk01.sum(1), torch.tensor([2., 2., 2.])), \
+        'topk_eval=2 must give exactly kappa=2 on every row, unlike the plain threshold'
+
+    topkpm = preprocess_on_codes(z, code_domain='unit', dist_metric='hamming', topk_eval=2)
+    exp_topkpm = torch.tensor([[1., 1., -1., -1., -1.],
+                               [1., 1., -1., -1., -1.],
+                               [1., 1., -1., -1., -1.]])
+    assert torch.equal(topkpm, exp_topkpm), topkpm
+
+    print('    z              =', z.tolist())
+    print('    plain (>0.5)   =', plain.tolist(), ' kappa =', plain.sum(1).tolist())
+    print('    topk_eval=2    =', topk01.tolist(), ' kappa =', topk01.sum(1).tolist(),
+         ' (exact, matches hand-picked top-2 indices per row)')
+
+
+def test_topk_eval_guards_fire():
+    unit = torch.rand(16, 8)
+    signed = torch.randn(16, 8)
+
+    _expect_value_error(lambda: preprocess_on_codes(signed, code_domain='signed',
+                                                    dist_metric='hamming', topk_eval=3),
+                        'only applies to code_domain=`unit`', 'topk_eval on the signed domain')
+    _expect_value_error(lambda: preprocess_on_codes(unit, code_domain='unit',
+                                                    dist_metric='cosine', topk_eval=3),
+                        "dist_metric in ('overlap', 'hamming')", 'topk_eval with dist_metric=cosine')
+    _expect_value_error(lambda: preprocess_on_codes(unit, code_domain='unit',
+                                                    dist_metric='overlap', topk_eval=0),
+                        'must be an int in [1, nbit=8]', 'topk_eval=0 (out of range)')
+    _expect_value_error(lambda: preprocess_on_codes(unit, code_domain='unit',
+                                                    dist_metric='overlap', topk_eval=9),
+                        'must be an int in [1, nbit=8]', 'topk_eval > nbit')
+    _expect_value_error(lambda: preprocess_on_codes(unit, code_domain='unit',
+                                                    dist_metric='overlap', topk_eval=2.0),
+                        'must be an int in [1, nbit=8]', 'topk_eval as a float')
+
+    # boundary: topk_eval == nbit (dense) must be accepted, not rejected
+    out = preprocess_on_codes(unit, code_domain='unit', dist_metric='overlap', topk_eval=8)
+    assert torch.equal(out, torch.ones_like(unit)), 'topk_eval == nbit must activate every bit'
+    print('    ok   topk_eval == nbit (dense boundary) is accepted, all bits active')
+
+    # topk_eval=None (the default) must be silently accepted everywhere -- baselines untouched
+    for metric in ('cosine', 'euclidean'):
+        out = preprocess_on_codes(unit, sign=False, code_domain='signed', dist_metric=metric,
+                                  topk_eval=None)
+        assert torch.equal(out, unit), metric
+    print('    ok   topk_eval=None (default) never triggers a guard')
+
+
 def main():
     tests = [test_handout_trap_is_reproduced,
              test_overlap_and_hamming_match_hand_computed,
              test_signed_path_is_bit_identical_to_before,
              test_guards_fire,
-             test_calculate_mAP_end_to_end]
+             test_calculate_mAP_end_to_end,
+             test_topk_eval_forces_exact_kappa,
+             test_topk_eval_guards_fire]
     for t in tests:
         print(f'\n[{t.__name__}]')
         print(f'  {t.__doc__.strip()}' if t.__doc__ else '')

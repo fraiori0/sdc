@@ -23,6 +23,8 @@ def main(config: DictConfig):
         load_config.dist_metric = config.dist_metric
         if config.get('code_domain') is not None:  # else keep the trained config's value
             load_config.code_domain = config.code_domain
+        if config.get('topk_eval') is not None:  # else keep the trained config's value
+            load_config.topk_eval = config.topk_eval
         load_config.batch_size = config.batch_size
         load_config.save_code = config.save_code
         load_config.wandb = False

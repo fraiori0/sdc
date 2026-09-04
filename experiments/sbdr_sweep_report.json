@@ -1,0 +1,58 @@
+[
+  {
+    "logdir": "logs/cifar10/sbdr64_100/taskC_bs128_adamw_actclip_lambda2_1.6_42_260903_184150_517623",
+    "critic_order": 2,
+    "lambda2": 1.6,
+    "eps": 0.31,
+    "nbit": 64,
+    "db_size": 59000,
+    "test_size": 1000,
+    "R": 1000,
+    "mAP": {
+      "native": 0.1,
+      "topk8": 0.1,
+      "topk16": 0.1,
+      "topk32": 0.1
+    },
+    "usage": {
+      "kappa_mean": 46.0,
+      "kappa_std": 0.0,
+      "binarity": 1.0,
+      "usage_mean": 0.71875,
+      "usage_std": 0.4531634747982025,
+      "dead_bits": 18,
+      "saturated_bits": 46,
+      "near_dead_bits": 18,
+      "near_saturated_bits": 46,
+      "nbit": 64
+    },
+    "overlap_distribution": {
+      "overlap_mean": 46.0,
+      "overlap_std": 0.0,
+      "n_distinct_values": 1,
+      "n_distinct_values_over_1pct_mass": 1,
+      "overlap_zero_frac": 0.0,
+      "n_pairs_sampled": 4498500
+    },
+    "tie_block": {
+      "R": 1000,
+      "mean": 59000.0,
+      "std": 0.0,
+      "median": 59000.0,
+      "max": 59000
+    },
+    "false_negative": {
+      "false_negative_rate_mean": 0.10000000149011612,
+      "false_negative_rate_std": 0.3001501262187958,
+      "k": 50
+    },
+    "separation": {
+      "positive_pair_overlap_mean": 46.0,
+      "positive_pair_overlap_std": 0.0,
+      "random_pair_overlap_mean": 46.0,
+      "random_pair_overlap_std": 0.0,
+      "separation_ratio": 1.0,
+      "n_positive_pairs": 1024
+    }
+  }
+]

@@ -141,7 +141,7 @@ class BaseTrainer:
         io.fast_save(codes, fn)
 
     def load_codes(self, fn):
-        return torch.load(fn)
+        return torch.load(fn, weights_only=False)
 
     def save_model_state(self, fn):
         modelsd = self.model.state_dict()
@@ -149,7 +149,7 @@ class BaseTrainer:
         io.fast_save(modelsd, fn)
 
     def load_model_state(self, fn):
-        modelsd = torch.load(fn, map_location='cpu')
+        modelsd = torch.load(fn, map_location='cpu', weights_only=False)
         self.model.load_state_dict(modelsd)
 
     def save_training_state(self, fn):
@@ -159,7 +159,7 @@ class BaseTrainer:
                       'scheduler': schedulersd}, fn)
 
     def load_training_state(self, fn):
-        sd = torch.load(fn, map_location='cpu')
+        sd = torch.load(fn, map_location='cpu', weights_only=False)
         self.optimizer.load_state_dict(sd['optim'])
         self.scheduler.load_state_dict(sd['scheduler'])
 

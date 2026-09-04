@@ -171,7 +171,7 @@ CODE_DOMAINS = ('signed', 'unit')
 
 
 def validate_code_domain(codes, code_domain='signed', dist_metric=None, sign=True,
-                         threshold=0., tol=1e-6):
+                         threshold=0., tol=1e-6, topk_eval=None):
     """
     Loud, cheap guard against the [0,1] vs {-1,+1} domain trap.
 
@@ -205,9 +205,22 @@ def validate_code_domain(codes, code_domain='signed', dist_metric=None, sign=Tru
                          '{0, 1} and the resulting distances would be meaningless. '
                          'Did you mean code_domain=`unit`?')
 
+    if topk_eval is not None:
+        if code_domain != 'unit':
+            raise ValueError('`topk_eval` selects the top-k largest continuous activations per '
+                             f'sample before binarizing and only applies to code_domain=`unit`, '
+                             f'got code_domain=`{code_domain}`.')
+        if dist_metric not in ('overlap', 'hamming'):
+            raise ValueError('`topk_eval` produces a binary code and is only meaningful with '
+                             f"dist_metric in ('overlap', 'hamming'), got dist_metric=`{dist_metric}`.")
+        nbit = codes.size(1)
+        valid_int = isinstance(topk_eval, int) and not isinstance(topk_eval, bool)
+        if not valid_int or not (1 <= topk_eval <= nbit):
+            raise ValueError(f'`topk_eval` must be an int in [1, nbit={nbit}], got {topk_eval!r}.')
+
 
 def preprocess_on_codes(codes, threshold=0., sign=True, avoid_clone=False,
-                        code_domain='signed', dist_metric=None):
+                        code_domain='signed', dist_metric=None, topk_eval=None):
     """
     Binarize codes ahead of ranking.
 
@@ -217,8 +230,15 @@ def preprocess_on_codes(codes, threshold=0., sign=True, avoid_clone=False,
     dist_metric: only consulted in the unit domain, where the binarization target depends
                  on the metric: {0, 1} for `overlap`, {-1, +1} for `hamming`.
     sign:        keeps its original meaning (binarize with torch.sign) in the signed domain.
+    topk_eval:   int or None (default). Unit domain + {overlap, hamming} only. When set,
+                 keep exactly the topk_eval largest continuous activations per sample and
+                 binarize those active, all others inactive -- an EXACT per-sample kappa,
+                 bypassing the 0.5 threshold, vs. the in-expectation kappa `eps` sets during
+                 training. Lets one trained model sweep an mAP-vs-kappa curve without
+                 retraining. Ties at the k-th largest are broken by torch.topk's
+                 (implementation-defined but deterministic) order.
     """
-    validate_code_domain(codes, code_domain, dist_metric, sign, threshold)
+    validate_code_domain(codes, code_domain, dist_metric, sign, threshold, topk_eval=topk_eval)
 
     # clone in case changing value of the original codes
     if not avoid_clone:
@@ -234,19 +254,27 @@ def preprocess_on_codes(codes, threshold=0., sign=True, avoid_clone=False,
 
         return codes
 
-    # unit domain: binarize at 0.5, never with torch.sign.
-    # `> 0.5` matches the active-bit predicate used to report kappa, so the realised
-    # sparsity at eval is the same quantity the loss logs during training.
+    # unit domain: binarize at 0.5 (or, with topk_eval, at the per-sample top-k cutoff),
+    # never with torch.sign.
+    if topk_eval is not None:
+        active = torch.zeros_like(codes, dtype=torch.bool)
+        active.scatter_(1, codes.topk(topk_eval, dim=1).indices, True)
+    else:
+        # `> 0.5` matches the active-bit predicate used to report kappa, so the realised
+        # sparsity at eval is the same quantity the loss logs during training.
+        active = codes > 0.5
+
     if dist_metric == 'overlap':
-        codes = (codes > 0.5).to(codes.dtype)  # {0, 1}
+        codes = active.to(codes.dtype)  # {0, 1}
     elif dist_metric == 'hamming':
-        # sign(z - 0.5), with the z == 0.5 tie resolved deterministically instead of
-        # torch.sign's 0, which would not be a valid code value
-        codes = torch.where(codes > 0.5,
+        # sign(z - 0.5) in spirit; the z == 0.5 tie is resolved deterministically via
+        # `active` rather than torch.sign's 0, which would not be a valid code value
+        codes = torch.where(active,
                             torch.ones_like(codes),
                             -torch.ones_like(codes))  # {-1, +1}
     # else (euclidean/cosine): the raw [0, 1] codes are consumed as-is, mirroring the
-    # signed domain, where those metrics also skip binarization
+    # signed domain, where those metrics also skip binarization (topk_eval is rejected
+    # for this case above, in validate_code_domain)
 
     return codes
 
@@ -262,7 +290,7 @@ def calculate_mAP(db_codes, db_labels,
                   Rs, threshold=0., dist_metric='hamming',
                   PRs=None,
                   landmark_gt=None, db_id=None, test_id=None,
-                  multiclass=False, code_domain='signed'):
+                  multiclass=False, code_domain='signed', topk_eval=None):
     if landmark_gt is not None:
         assert db_id is not None and test_id is not None
 
@@ -273,9 +301,11 @@ def calculate_mAP(db_codes, db_labels,
 
     ##### preprocess on codes #####
     db_codes = preprocess_on_codes(db_codes, threshold, dist_metric == 'hamming', avoid_clone,
-                                   code_domain=code_domain, dist_metric=dist_metric)
+                                   code_domain=code_domain, dist_metric=dist_metric,
+                                   topk_eval=topk_eval)
     test_codes = preprocess_on_codes(test_codes, threshold, dist_metric == 'hamming', avoid_clone,
-                                     code_domain=code_domain, dist_metric=dist_metric)
+                                     code_domain=code_domain, dist_metric=dist_metric,
+                                     topk_eval=topk_eval)
     db_labels = db_labels.cpu()  # .numpy()
     test_labels = test_labels.cpu()  # .numpy()
 
@@ -448,15 +478,17 @@ def calculate_mAP(db_codes, db_labels,
 
 def calculate_pr_curve(db_codes, db_labels,
                        test_codes, test_labels,
-                       threshold=0., dist_metric='hamming', code_domain='signed'):
+                       threshold=0., dist_metric='hamming', code_domain='signed', topk_eval=None):
     gc.collect()
     torch.cuda.empty_cache()
 
     ##### preprocess on codes #####
     db_codes = preprocess_on_codes(db_codes, threshold, dist_metric == 'hamming',
-                                   code_domain=code_domain, dist_metric=dist_metric)
+                                   code_domain=code_domain, dist_metric=dist_metric,
+                                   topk_eval=topk_eval)
     test_codes = preprocess_on_codes(test_codes, threshold, dist_metric == 'hamming',
-                                     code_domain=code_domain, dist_metric=dist_metric)
+                                     code_domain=code_domain, dist_metric=dist_metric,
+                                     topk_eval=topk_eval)
     db_labels = db_labels.cpu()  # .numpy()
     test_labels = test_labels.cpu()  # .numpy()
 

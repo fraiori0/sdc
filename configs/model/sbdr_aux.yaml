@@ -1,0 +1,34 @@
+# @package _global_
+# Arm D (HANDOUT.md §3, §2.5): CIBHash arch + sampling unchanged, our critic added
+# as an auxiliary regularizer on the probabilities `p`. Mirrors cibhash.yaml exactly
+# (arch, trainer, backbone, transforms) so mAP stays comparable to Arm A -- only the
+# criterion differs.
+defaults:
+  - override /transforms: cibhash
+  - override /backbone: vgg16
+  - _self_
+
+
+model:
+  _target_: models.arch.cibhash.CIBHash
+  backbone: ${backbone}
+  nbit: 64
+  nclass: ${dataset.nclass}
+
+trainer:
+  _target_: trainers.cibhash.CIBHashTrainer
+
+criterion:
+  _target_: models.loss.sbdr_aux.CIBHashSBDRAuxLoss
+  multiclass: ${dataset.multiclass}
+  temperature: 0.3     # CIBHash NtXent temperature, unchanged from cibhash.yaml
+  kl_beta: 0.001        # CIBHash's own KL weight, unchanged from cibhash.yaml
+  eps: 0.31             # SBDR critic eps; d=64, kappa_target=8 -> eps ~= kappa^2/(3.24*d)
+  beta: 1.0             # weight of the auxiliary SBDR term; Step 1 gate: beta>0 vs beta=0
+  symmetric: True
+  detach_mean: False    # MUST NOT be True by default (HANDOUT §0.1) -- ablation only
+
+# code_domain / dist_metric intentionally left at train.yaml's defaults
+# (signed / hamming): CIBHash's arch is unchanged for this arm, so the eval-time
+# `codes` key is still the raw pre-sigmoid logits (straddles 0), not a [0,1] code.
+# Setting code_domain: unit here would fail utils.hashing's domain guard.

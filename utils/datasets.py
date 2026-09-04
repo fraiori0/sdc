@@ -14,7 +14,7 @@ ROOTDIR = os.environ.get('ROOTDIR', '.')  # for condor
 
 
 def use_torch_loader():
-    return lambda x: torch.load(x, map_location='cpu')
+    return lambda x: torch.load(x, map_location='cpu', weights_only=False)
 
 
 def use_pil_loader():
@@ -128,7 +128,8 @@ class HashingDataset(Dataset):
 
 class DescriptorDataset(Dataset):
     def __init__(self, root, filename, ratio=1, selected_classes=[]):
-        self.data_dict = torch.load(os.path.join(root, filename), map_location=torch.device('cpu'))
+        self.data_dict = torch.load(os.path.join(root, filename), map_location=torch.device('cpu'),
+                                    weights_only=False)
         self.filename = filename
         self.root = root
         self.ratio = ratio
@@ -198,7 +199,8 @@ class LandmarkDescriptorDataset(DescriptorDataset):
 class GLDv2EmbeddingDataset(Dataset):
     # todo: with labels
     def __init__(self, root, filename, id_filename):
-        self.data_list = torch.load(os.path.join(root, filename), map_location=torch.device('cpu'))
+        self.data_list = torch.load(os.path.join(root, filename), map_location=torch.device('cpu'),
+                                    weights_only=False)
         self.data_list = F.normalize(self.data_list, p=2, dim=-1)
         self.id_list = [l.strip() for l in open(os.path.join(root, id_filename)).readlines()]
         self.filename = filename
@@ -278,7 +280,7 @@ def mnist(**kwargs):
 
     if not load_data:
         print(f'Loading {path}')
-        data_index = torch.load(path)
+        data_index = torch.load(path, weights_only=False)
     else:
         train_data_index = []
         query_data_index = []
@@ -375,7 +377,7 @@ def cifar(nclass, **kwargs):
 
     if not load_data:
         print(f'Loading {path}')
-        data_index = torch.load(path)
+        data_index = torch.load(path, weights_only=False)
     else:
         train_data_index = []
         query_data_index = []

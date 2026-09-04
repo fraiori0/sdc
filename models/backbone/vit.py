@@ -162,7 +162,8 @@ class ViTBaseDino(ViTBase):
                                       attn_drop_rate=kwargs.get('attn_drop_rate', 0.),
                                       drop_path_rate=kwargs.get('drop_path_rate', 0.))
             if pretrained:
-                model.load_state_dict(torch.load(f'{ROOTDIR}/pretrained_models/dino/{self.filename}'),
+                model.load_state_dict(torch.load(f'{ROOTDIR}/pretrained_models/dino/{self.filename}',
+                                                 weights_only=False),
                                       strict=False)
 
         self.embed_dim = model.embed_dim
@@ -197,7 +198,7 @@ class ViTBaseMAE(ViTBase):
         super().__init__(pretrained=False, **kwargs)
 
         if pretrained:
-            sd = torch.load(f'{ROOTDIR}/pretrained_models/mae/{self.filename}')['model']
+            sd = torch.load(f'{ROOTDIR}/pretrained_models/mae/{self.filename}', weights_only=False)['model']
             print(self.load_state_dict(sd, strict=False))
 
 
