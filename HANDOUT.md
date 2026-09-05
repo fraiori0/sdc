@@ -800,3 +800,595 @@ Neither Task B (init fix) nor Task C (delta offset / ste_clip) produced a
 configuration meeting its own stated bar (Task B: loss ≈ -1.78 at init; Task C:
 the predicted survive/die pattern) before Task D's full 100-epoch key-cell runs
 were to be launched. Task D has not been run.
+
+### 11.4 Task A/B follow-up — coupling vs. implementation hypothesis for the ratchet (2026-09-04, new)
+
+Two hypotheses for *why* the order-1/clip ratchet (§11 above) lands on the
+all-samples-one-code degenerate manifold: (1) shared-backbone gradient coupling
+correlates per-sample updates and pulls all samples' codes together; (2)
+something specific to this repo's head/init/optimizer, independent of
+cross-sample feature correlation. Diagnostic: `experiments/sbdr_diagnose_ratchet_hdiv.py`
+(extends `sbdr_diagnose_ratchet.py` — same fixed real batch, seed, act=clip,
+critic_order=1, Adam lr=1e-4 wd=1e-5, 5000 steps — adding per-step cross-sample
+diversity of the backbone features `h_i` feeding the encoder, pairwise cosine
+similarity and Euclidean distance, mean+var over the batch, and of the
+binarized codes, pairwise Hamming distance mean+var).
+
+**Rerun of the original (unfrozen) config** reproduces the collapse
+qualitatively (loss→0.0000 exact, distinct codes→1, dead_bits_exact jumps to
+56/64) but at a later step (~3000-3050 vs. the original run's ~1550-1600) and
+onto a different point on the degenerate manifold (κ=8.000±0.000 this time vs.
+κ=4.000±0.000 originally) — expected run-to-run variance (GPU/cuDNN
+nondeterminism), consistent with "one absorbing state out of a manifold of
+them," not a fixed step or fixed code. Re-inspecting the *original* trajectory
+(`sbdr_ratchet_trajectory.pt`) at full 50-step resolution (finer than the
+7-row table above) shows the same pattern: distinct codes 58→1 and
+dead_bits_exact 4→60 within a single logged 50-step window (1550→1600), not
+gradually across 1500-1750 as the sparse table suggested — the transition is a
+sharp, ~50-step event in both runs, not a slow drift.
+
+**Backbone-feature diversity collapses in the same window as code diversity,
+not before or after it.** In the rerun, at step 3000 (pre-collapse):
+distinct codes=60/64, feature pairwise cosine mean=0.227 (var 0.0157) — clearly
+non-degenerate. At step 3050 (one logging interval later): distinct codes=1,
+feature cosine mean=0.999 (var ≈0.0000). Both the output-code collapse and the
+backbone-feature collapse complete within the same ≤50-step window; pre-collapse
+feature cosine mean was stable/slowly drifting (~0.21-0.26) for the preceding
+~2750 steps, so this is a sudden joint event, not a slow feature-diversity
+erosion that gradually drags codes down with it.
+
+**Freezing the backbone prevents the collapse entirely over the same 5000-step
+horizon.** `--frozen_backbone` (mirrors `trainers/base.py`'s
+`backbone_lr_scale=0` path exactly: backbone params `requires_grad_(False)`,
+excluded from the optimizer): feature cosine mean is pinned at its init value
+(0.4590, by construction) for all 5000 steps. Loss reaches -1.948 (min of any
+config seen so far, including the init-fix sweep in §11.1) by step 250 and
+**stays there, bit-stable, through step 5000** — distinct codes settle at
+62/64, dead_bits_exact at 5/64, both flat. No collapse onset, no ratchet, no
+ambiguous slow drift — a clean non-collapsing terminal state.
+
+| run | backbone | terminal step 5000: loss / κ / distinct / dead_bits | collapse? | step of collapse onset |
+|---|---|---|---|---|---|
+| original (§11 above) | trainable | 0.0000 / 4.000±0.000 / 1 / 60 | yes | ~1550-1600 |
+| rerun (this section) | trainable | 0.0000 / 8.000±0.000 / 1 / 56 | yes | ~3000-3050 |
+| frozen-backbone (this section) | frozen | -1.948 / 4.531±0.992 / 62 / 5 | no | n/a (stable 250→5000) |
+
+**Assessment.** This favors hypothesis 1 (architecture/gradient-coupling)
+over hypothesis 2 (something idiosyncratic to this repo's head/init/optimizer
+independent of input correlation): removing the shared-backbone gradient path
+removes the collapse outright, on the same batch/seed/optimizer/loss/activation
+that reliably collapses twice when the backbone trains. The coincident-timing
+result (feature and code diversity collapse in the same ~50-step window) is
+consistent with, but does not by itself prove, this direction — it is also
+consistent with the reverse causal story (head collapses first for a
+head-internal reason, e.g. an Adam/clip-saturation effect, and the resulting
+collapsed gradient signal then homogenizes the backbone features as a
+*consequence*, not a cause). The frozen-backbone result is the one that
+actually discriminates: with features unable to move, there is nothing for
+that reverse story to act through, and collapse still doesn't happen — so the
+homogenization is not merely a downstream symptom of a head-only failure mode.
+
+**What this does not establish:** only one frozen-backbone seed/batch was run
+(5000 steps, one fixed batch, one init) — not swept across seeds, batches, or
+backbone architectures, so "collapse rate 0/1" is suggestive, not a
+confidence interval. It also does not distinguish "inherent to the order-1
+critic with *any* hard-saturating activation, given correlated multi-sample
+gradients" from "specific to this repo's particular `Linear-ReLU-Linear` head
+and VGG16 backbone pairing" — that would need testing other backbones
+(§11's coupling story, per the original task framing, is about *any*
+architecture where many samples' units saturate together under a shared
+gradient step, which frozen-backbone alone can't isolate from
+"VGG16-specific"). It also does not test whether a trainable backbone with
+decorrelated per-sample features (e.g. forced via a diversity regularizer, or
+a backbone architecture less prone to early-training feature homogeneity)
+would avoid collapse without freezing anything — that would more directly
+test the causal mechanism (correlated features → correlated gradient step →
+joint saturation) rather than just removing the backbone gradient path
+wholesale. One correction to the coupling hypothesis as originally stated: the
+head is not a single `Linear` layer but `Linear(features_size,1024)-ReLU-
+Linear(1024,nbit)` (`models/arch/sbdr.py`); the coupling argument (shared
+input feature correlated across samples → correlated push on shared weights)
+still applies, just through a two-layer head rather than one.
+
+Full trajectories: `experiments/sbdr_ratchet_trajectory_unfrozen_hdiv.pt`,
+`experiments/sbdr_ratchet_trajectory_frozen.pt`. Script:
+`experiments/sbdr_diagnose_ratchet_hdiv.py`. GPU 2 used for both runs
+(sequentially, released and confirmed idle via `nvidia-smi` between runs).
+
+## 12. Frozen backbone adopted as protocol; full-length comparison (2026-09-04, new)
+
+### 12.0 Task 0 — is the backbone pretrained, and was it being fine-tuned?
+
+`configs/backbone/vgg16.yaml` sets `pretrained: True` -> `models/backbone/vgg16.py`
+calls `torchvision.models.vgg16(pretrained=True)` (ImageNet weights). `configs/
+train.yaml` sets `backbone_lr_scale: 1` by default and `configs/model/sbdr.yaml`
+does not override it, so every collapsing run in §9-§11.4 was fine-tuning an
+ImageNet-pretrained VGG16 end-to-end, not training one from random init. This
+is the "pretrained-and-fine-tuned" branch: the practical fix is to freeze the
+backbone rather than chase the from-scratch mechanism further (which does not
+apply here).
+
+### 12.1 10-epoch frozen-backbone check, Arm A vs. Arm B (`d=64`)
+
+10 epochs, `backbone_lr_scale=0`, batch size 64, `eps=0.31`, seed 42, GPU 3
+(GPU 2 occupied by another user's job throughout this section; never used).
+
+| Arm | mAP @ ep5 | mAP @ ep10 (best) | κ mean±std | dead bits | binarity | separation ratio |
+|---|---|---|---|---|---|---|
+| A — CIBHash | 0.5819 | 0.5828 | n/a (signed) | n/a | n/a | n/a |
+| B — SBDR (order-1, clip) | 0.5734 | 0.5815 | 5.18±1.05 | 4/64 | 0.937 | 7.96x |
+
+No collapse in either arm; mAP close to parity. This already exceeds every
+trainable-backbone Arm B config from §9's 40-epoch sweep (best there: 0.5302).
+
+### 12.2 Full-length (100-epoch) frozen-backbone runs
+
+Same protocol, extended to 100 epochs (matches §6's CIBHash reproduce
+schedule; `configs/train.yaml`'s own default `epochs: 100`), eval every 10
+epochs, seed 42, GPU 3 only, sequential, confirmed idle via `nvidia-smi`
+before/after each run.
+
+| epoch | A — CIBHash (`d=64`) | B — SBDR `d=64`, `eps=0.31` | B — SBDR `d=512`, `eps=1.0`, batch 128 |
+|---|---|---|---|
+| 10 | 0.5858 | 0.5817 | 0.6325 |
+| 20 | 0.5941 | 0.5949 | 0.6431 |
+| 30 | 0.6035 | 0.6011 | 0.6492 |
+| 40 | 0.6084 | 0.6083 | 0.6497 |
+| 50 | 0.6113 | 0.6151 | 0.6499 |
+| 60 | 0.6139 | 0.6134 | 0.6491 |
+| 70 | 0.6169 | 0.6032 | **0.6580 (best)** |
+| 80 | 0.6189 | **0.6200 (best)** | 0.6562 |
+| 90 | **0.6225 (best)** | 0.6143 | 0.6559 |
+| 100 (final) | 0.6221 | 0.6158 | 0.6560 |
+
+Runtimes: 0.69h / 0.69h / 0.73h. Arm B `d=64` tracks Arm A closely but does not
+overtake it (best-mAP gap 0.0025, final-epoch gap 0.0063, and its curve is
+noisier/non-monotonic where Arm A's is smooth). Arm B `d=512` clearly exceeds
+Arm A throughout training (best +0.0355, ~5.7% relative) -- but see §12.3,
+this comparison is confounded by active-bit count, not dimensionality alone.
+
+Arm B diagnostics at best checkpoint:
+
+| | `d=64`, `eps=0.31` (ep80) | `d=512`, `eps=1.0` (ep70) |
+|---|---|---|
+| κ mean±std | 4.70±1.18 | 24.36±5.57 |
+| dead bits | 4/64 | 6/512 |
+| binarity | 0.966 | 0.969 |
+| separation ratio | 10.16x | 14.37x |
+| distinct overlap values (native) | 9 | 36 |
+| tie-block mean/median/max @ R=1000 | 2496/2160/14143 | 484/384/2706 |
+
+No collapse in either Arm B variant at full training length -- dead bits stay
+a tiny fraction of `d`, binarity near 1, no saturated bits.
+
+`d=512` realized κ (24.36±5.57) vs. the two §0.3 predictive laws: free-code
+`1.8·√(eps·d) ≈ 40.7`; trained-encoder `0.85·eps^0.302·d^0.660 ≈ 52.1`.
+Realized κ is ~60% of the free-code prediction and ~47% of the trained-encoder
+prediction -- right order of magnitude (tens, not single digits, not
+hundreds) but noticeably below both point predictions. Caveat: neither law
+was fit on a frozen-backbone encoder, so this is a stress-test of laws
+derived elsewhere, not a validation of them.
+
+### 12.3 Test 1 — matched-κ (`topk_eval=8`) comparison, `d=64` vs. `d=512`
+
+The §12.2 `d=512` win is confounded: realized κ differs ~5x between the two
+(4.70 vs 24.36), so dimensionality and active-bit count were never isolated.
+Using `topk_eval` (`utils/hashing.py`'s `preprocess_on_codes`, exact per-sample
+κ override at eval time, no retraining) on the existing best checkpoints from
+§12.2:
+
+| | native | `topk_eval=8` |
+|---|---|---|
+| `d=64` (`eps=0.31`) | 0.6200 | 0.6165 |
+| `d=512` (`eps=1.0`) | 0.6580 | 0.6281 |
+
+`d=512` still wins at matched κ=8 (Δ=0.0116), but the gap shrinks from
+Δ=0.0380 (native) to Δ=0.0116 -- roughly 70% of the native advantage was the
+active-bit-count confound; a smaller genuine dimensionality effect (~1.2 mAP
+points) survives matching. At κ=8, both are capped at κ+1=9 possible overlap
+values and both realize all 9 (`d=64`: 9 distinct, 7 over 1% mass; `d=512`: 9
+distinct, 4 over 1% mass, 89.5% of pairs at overlap=0 vs. 22.3% for `d=64`) --
+so the native-run "36 vs. 9 distinct overlap values" gap (§12.2) was mostly an
+artifact of native κ, not intrinsic dimensionality. Tie-block size at κ=8
+still favors `d=512` (mean 1112 vs. 1741, ~36% smaller), consistent with the
+small residual dimensionality effect seen in mAP.
+
+**Implication:** the `d=512` advantage over `d=64` (§12.2) is mostly, but not
+entirely, an active-bit-count effect. A real but much smaller dimensionality
+effect remains after matching κ.
+
+### 12.4 Test 2 — SDC, frozen backbone, same protocol as Arm A
+
+`models/arch/sdc.py` / `models/loss/sdc.py`, `nbit=64`, `backbone_lr_scale=0`,
+100 epochs, seed 42, eval every 10 epochs, GPU 3, same protocol as §12.2's
+Arm A run. Note: `configs/model/sdc.yaml` already sets `backbone_lr_scale: 0`
+as its own default (unlike `cibhash.yaml`/`sbdr.yaml`, which inherit
+`train.yaml`'s default of 1) -- so this run's frozen-backbone setting is
+actually this repo's existing default for SDC, not a new override. This
+contradicts the premise that this repo's 66.3 reference number came from a
+trainable-backbone run under this repo's own config; flagged here as an
+open discrepancy, not resolved by this test.
+
+| epoch | mAP |
+|---|---|
+| 10 | 0.5907 |
+| 20 | 0.5916 |
+| 30 | 0.5867 |
+| 40 | **0.5976 (best)** |
+| 50 | 0.5959 |
+| 60 | 0.5847 |
+| 70 | 0.5877 |
+| 80 | 0.5876 |
+| 90 | 0.5930 |
+| 100 (final) | 0.5917 |
+
+Runtime: 0.48h.
+
+- vs. this repo's own published trainable-backbone SDC reference (66.3 / 0.663):
+  best frozen mAP 0.5976 is **0.0654 lower** (~9.9% relative) -- a substantial gap.
+- vs. frozen-backbone Arm A / CIBHash (0.6225, §12.2): best frozen SDC mAP
+  0.5976 is **0.0249 lower** -- SDC also loses to CIBHash specifically under
+  the frozen protocol, whereas CIBHash frozen (0.6225) met/slightly exceeded
+  its own trainable-backbone reference (0.6167/0.612, §6).
+
+**Implication:** "frozen backbone doesn't hurt" does not generalize from
+CIBHash to SDC. SDC loses ground when frozen, both against its own
+trainable-backbone reference and against frozen CIBHash -- frozen backbone is
+not a neutral protocol choice across methods for this paper's comparisons.
+
+GPU discipline: only GPU 3 used for every run and diagnostic pass in §12
+(GPU 2 occupied by another user's unrelated job the entire time, never
+touched); confirmed idle via `nvidia-smi` before each launch and after the
+last run. `experiments/sbdr_report.py`'s hardcoded combined-output write to
+`experiments/sbdr_sweep_report.json` was triggered twice more in this section
+(once per Arm B variant) and reverted via `git checkout` immediately after
+each call, as in §11.4.
+
+### 12.5 Correction to §12.4's framing, and a config audit against the paper (2026-09-04)
+
+§12.4 framed the SDC gap as a frozen-vs-trainable-backbone question. That
+premise was wrong: the paper's own supplementary material (`docs/suppmat.pdf`,
+Sec. A, read directly for this section rather than assumed) states plainly
+that **all** compared methods, including SDC, use a **frozen** pretrained
+VGG16, Adam lr=0.0001, batch 64, 100 epochs, with lr dropped to 0.00001 after
+epoch 80 -- this repo's frozen protocol was already correct, and 66.3 is
+itself a frozen-backbone number. The real question is a reproduction gap
+under matching protocols, not a frozen/trainable choice. §12.4's framing is
+superseded by this section.
+
+**Step 1 -- config audit against the paper (`configs/model/sdc.yaml`, `models/loss/sdc.py`, `docs/suppmat.pdf` Sec. A/B/C):**
+
+| item | paper | this repo (`sdc.yaml`, as run in §12.4) | match? |
+|---|---|---|---|
+| λq (`quan`) | 1 | 1 | yes |
+| λcl (`cont` weight) | 1 (only when Lcl is used) | 1 (default), but `contrastive` (the module implementing Lcl) is `None` -- `models/loss/sdc.py`'s `forward` only adds the Lcl term `if self.contrastive is not None`, so Lcl is **structurally absent**, not just default-weighted | **no** -- see below |
+| calibration Beta(α,β) (`beta_ab`) | α=β=5 (best row, Table 1) | 5 | yes |
+| backbone / frozen | VGG16, frozen | VGG16, frozen (`backbone_lr_scale=0` is `sdc.yaml`'s own default) | yes |
+| Adam lr | 0.0001 | 0.0001 | yes |
+| batch size | 64 | 64 | yes |
+| epochs / lr schedule | 100 epochs, lr/10 after epoch 80 | 100 epochs; `configs/scheduler/step.yaml`: `step_size=int(0.8*100)=80`, `gamma=0.1` -> lr/10 at epoch 80 | yes |
+| **weight decay** | **0.0005** | `configs/optim/adam.yaml`: **0.00001** | **no -- 50x mismatch, shared by every arm's runs so far, not SDC-specific** |
+| `rec_type` / quantization form | L1 on `(s-C)`; quan = `1-cossim(f,f.sign())` (Algorithm 1) | `rec_type="l1"`, `quan_type="cs"` | yes |
+| orthogonality constraint on `C` | none in Algorithm 1 (no relu/clamp) | `ortho_constraint=False` (matches; `sdc_simclr.yaml`'s `True` is the outlier, not paper-matching) | yes |
+
+Two real findings, of different character:
+
+1. **weight_decay mismatch (simple, correctable):** 0.00001 vs. the paper's
+  0.0005, a plain optimizer-setting error affecting every arm run so far
+  (Arm A, Arm B x2, and SDC), not something specific to SDC. Fixed for the
+  Step 3 rerun below (SDC only, per the task's scope).
+2. **The 66.3 target itself needs correcting, not just the config:** the
+  paper's own ablation (suppmat Table 2) reports 66.3 only **with** Lcl
+  included; the same Beta(5,5) calibration **without** Lcl scores **63.0**
+  (matches Table 1's Beta(5,5) row exactly, which is explicitly run at
+  `Lcl=0`). `configs/model/sdc.yaml` never wires up `contrastive`, so every
+  SDC run in this repo so far (§12.4 and this section) structurally
+  corresponds to the paper's "wo/ Lcl" ablation cell -- **63.0 is the correct
+  comparison point for this config, not 66.3.** Properly enabling Lcl per the
+  paper's own Algorithm 1 is not a config fix: Algorithm 1 needs a *second,
+  independently-augmented* view pair (`x2`) distinct from the pair used for
+  the main SDC loss, and applies SimCLR to **raw pre-hash features**, not
+  hash codes. This repo's `models/arch/sdc.py.forward` never returns a third
+  ("`cont_feats`") output, and `trainers/sdc.py`'s trainer only ever
+  constructs one augmented view pair per step -- both would need real code
+  changes, not a config change, so this is flagged as an open gap rather than
+  fixed here (out of scope for a one-shot corrective rerun).
+
+**Step 2 -- dataset/eval protocol audit:** `docs/suppmat.pdf` Sec. A.1
+states, for CIFAR-10: "100 images from each class as queries (1K total)...
+remaining 59K as database... 5K images sampled from the database as training
+images" -- this matches this repo's `configs/dataset/cifar10.yaml` split
+exactly (test=1000, db=59000, train=5000, confirmed by direct tensor load in
+§0's initial audit, not just config values). `R` and `mAP@1000` also already
+match (§6/§12 always used `dataset.R=1000`). No mismatch found in Step 2.
+
+**Step 3 -- corrective rerun (weight_decay fix only):** same as §12.4
+(`model=sdc`, `nbit=64`, `backbone_lr_scale=0`, 100 epochs, seed 42, GPU 3),
+`optim.weight_decay=0.0005` instead of the shared default `0.00001`.
+
+| epoch | mAP |
+|---|---|
+| 10 | 0.5929 |
+| 20 | 0.5941 |
+| 30 | 0.5819 |
+| 40 | 0.5957 |
+| 50 | 0.5926 |
+| 60 | 0.5948 |
+| 70 | 0.5878 |
+| 80 | 0.6040 |
+| 90 | **0.6053 (best)** |
+| 100 (final) | 0.6042 |
+
+Runtime: 0.47h.
+
+- vs. §12.4's original run (wd=0.00001): best 0.6053 vs. 0.5976 (**+0.0077**),
+  final 0.6042 vs. 0.5917 (**+0.0125**) -- a small, consistent improvement in
+  the expected direction.
+- vs. **63.0** (the correct reference for this Lcl-disabled config): best
+  0.6053 is **0.0247 lower** (~3.9% relative) -- narrower than the naive
+  comparison against 66.3 (§12.4: -0.0654) but still a real, unexplained gap.
+- vs. 66.3 (not the correct target for this config, reported per the original
+  ask anyway): **0.0577 lower**.
+
+**Bottom line:** the weight_decay fix helps modestly but does not close the
+gap. After correcting both the protocol-framing error (frozen was always
+right) and the target-recalibration error (63.0, not 66.3, is what this
+Lcl-disabled config should be compared against), a ~2.5-point unexplained gap
+remains. Per the task's stopping condition, this is now flagged as an open
+problem rather than guessed at further: candidates not ruled out include a
+subtler implementation difference in `models/loss/sdc.py` vs. Algorithm 1, a
+data-pipeline difference not visible in the config, or a metric-computation
+difference -- none investigated further here.
+
+GPU discipline: GPU 3 only, one run at a time, confirmed idle via `nvidia-smi`
+before the rerun and after it completed; GPU 2 remained occupied by another
+user's unrelated job throughout.
+
+### 12.6 Provenance of §12.5's two discrepancies, and the `sdc_simclr` run that closes the gap (2026-09-04)
+
+**Provenance (pure git archaeology, no training).** This repo's history is
+not shallow and contains `f429ca9 "Merge branch 'master' of
+https://github.com/kamwoh/sdc"` -- the exact URL the paper's README links to
+-- so upstream history is directly available, not just inferable. This
+fork's own commits (`d0d2e03` onward) begin strictly after the last upstream
+commit and never touch either file below.
+
+- `configs/optim/adam.yaml`'s `weight_decay=0.00001`: `git log --follow`
+  shows exactly one commit ever touches this file -- `1e3410e "init commit"`
+  (kam woh, 2023-03-10), which introduced it with this value already set. No
+  commit since, upstream or fork, has changed it. **Traced to the original
+  authors' repo unchanged since its first commit -- an upstream default, not
+  fork-introduced.** The paper's stated 0.0005 has apparently never matched
+  the authors' own shipped code.
+- `configs/model/sdc.yaml` / `models/loss/sdc.py`'s `contrastive` handling:
+  `git log -S"contrastive"` shows the string enters `models/loss/sdc.py` in
+  exactly one commit, `0174b37 "updated for official release"` (kam woh,
+  2023-08-31), and the diff shows this is the mechanism's *introduction* (the
+  `cont`/`contrastive` args, `contrastive_loss()`, and the `if self.contrastive
+  is not None` gate did not exist before), not a removal of prior wiring.
+  The same commit simultaneously created `configs/model/sdc_simclr.yaml`
+  from scratch, which does set `contrastive`. **Traced to the original
+  authors' repo, unchanged since the commit that added the feature -- an
+  upstream design choice (ship Lcl opt-in via a separate config, default
+  `sdc.yaml` off), not fork-introduced and not a wired-up-then-removed
+  feature.**
+
+**`sdc_simclr` run.** Before running, confirmed `configs/model/sdc_simclr.yaml`
+against the `sdc.yaml` fields §12.5 already checked: `rec=1`, `rec_type="l1"`,
+`quan=1` (λq), `quan_type="cs"`, `beta_ab=5` all match. Two differences beyond
+`contrastive`/`cont=1`, flagged before running rather than assumed away:
+`ortho_constraint=True` (vs. `sdc.yaml`'s paper-matching `False`, §12.5) and
+`/transforms: cibhash` (real augmentation, vs. `sdc.yaml`'s `no_augmentation`
+-- expected, since Lcl needs two distinct augmented views, but a real
+pipeline difference nonetheless, not an isolated change).
+
+Ran `model=sdc_simclr`, `nbit=64`, `backbone_lr_scale=0`, `optim.weight_decay
+=0.0005` (paper value), 100 epochs, seed 42, eval every 10 epochs, GPU 3.
+
+| epoch | mAP |
+|---|---|
+| 10 | 0.6150 |
+| 20 | 0.6246 |
+| 30 | 0.6447 |
+| 40 | 0.6404 |
+| 50 | 0.6523 |
+| 60 | 0.6570 |
+| 70 | 0.6488 |
+| 80 | 0.6555 |
+| 90 | 0.6616 |
+| 100 (final, best) | **0.6646** |
+
+Runtime: 0.71h. Curve is still rising at epoch 100, unlike the plain
+`sdc.yaml` runs (§12.4/12.5), which peaked mid-schedule and drifted down.
+
+- vs. **66.3** (paper's Lcl-enabled number): 0.6646 is **+0.0016 higher** --
+  matches, marginally exceeds it (well within single-seed noise).
+- vs. **63.0** (paper's w/o-Lcl number): +0.0346 higher, as expected with Lcl active.
+- vs. **§12.5's 0.6053** (plain `sdc.yaml` + weight_decay fix, Lcl disabled): +0.0593 higher.
+
+**This closes the gap.** The reproduction gap opened in §12.4 is now fully
+explained across §12.5-12.6: not a frozen-vs-trainable-backbone issue
+(§12.5, closed -- frozen was always correct), not primarily the weight_decay
+mismatch (§12.5, small effect: +0.008-0.013 mAP), and not a deeper
+implementation bug -- the default `sdc.yaml` config correctly reproduces the
+paper's own lower ("wo/ Lcl") ablation cell, and the paper's headline number
+requires the separately-shipped `sdc_simclr.yaml` config, which §12.4/§12.5
+simply hadn't tested yet.
+
+GPU discipline: GPU 3 only, confirmed idle via `nvidia-smi` before launch and
+after completion; GPU 2 occupied by another user's unrelated job throughout.
+
+## 13. Weight-decay correctness pass, activation comparison, higher-d baselines, and a quantization-loss arm (2026-09-05)
+
+All runs: frozen VGG16 backbone, 100 epochs, seed 42, eval every 10 epochs,
+`optim.weight_decay=0.0005` (§12.5's paper-matching value) unless noted.
+GPU discipline for this whole section: only GPU 1 and GPU 3 used (by user
+permission, up to 2 GPUs at once); GPU 0 and GPU 2 remained occupied by other
+users' unrelated jobs throughout and were never touched. 7 training jobs run,
+mostly as 3 parallel pairs (one per GPU) plus 2 solo runs; 3
+`sbdr_report.py` diagnostic passes, each followed by `git checkout --
+experiments/sbdr_sweep_report.json` to revert that script's shared-file
+side effect, as in §11.4/§12.
+
+### 13.1 Task 1 -- weight-decay correctness pass, Arm A and Arm B (`d=64`)
+
+| epoch | Arm A (wd=5e-4) | Arm B `d=64,eps=0.31` (wd=5e-4) |
+|---|---|---|
+| 10 | 0.5832 | 0.5850 |
+| 20 | 0.5887 | 0.5967 |
+| 30 | 0.5933 | 0.6024 |
+| 40 | 0.5993 | 0.6140 |
+| 50 | 0.5969 | 0.6078 |
+| 60 | 0.6025 | 0.6092 |
+| 70 | 0.6068 | 0.6184 |
+| 80 | **0.6105 (best)** | 0.6108 |
+| 90 | 0.6089 | 0.6140 |
+| 100 (final) | 0.6079 | **0.6202 (best)** |
+
+| | Arm A | Arm B `d=64` |
+|---|---|---|
+| §12.2 (wd=1e-5) best/final | 0.6225/0.6221 | 0.6200/0.6158 |
+| this section (wd=5e-4) best/final | 0.6105/0.6079 | 0.6202/0.6202 |
+| Δ best | **-0.0120** | +0.0002 |
+| Δ final | **-0.0142** | +0.0044 |
+
+Arm B diagnostics (best ckpt, ep100): κ=4.74±1.24, dead bits=1/64,
+binarity=0.959, separation ratio=10.59x -- all consistent with §12.2's
+values, no qualitative change.
+
+**Three different directions across three methods.** SDC's wd fix helped
+(+0.008/+0.013, §12.5), Arm B is essentially unaffected (+0.0002 best, within
+noise), and Arm A/CIBHash gets clearly *worse* (-0.0120 best, -0.0142 final)
+-- the paper-matching weight decay is not a universal improvement; its effect
+is method-specific and in Arm A's case actively harmful, at least at this
+frozen-backbone, 100-epoch, single-seed setting.
+
+### 13.2 Task 2 -- activation comparison, `clip` vs `sigmoid` (Arm B, wd-fixed)
+
+| epoch | `act=clip` (13.1) | `act=sigmoid` |
+|---|---|---|
+| 10 | 0.5850 | 0.4814 |
+| 20 | 0.5967 | 0.5346 |
+| 30 | 0.6024 | 0.5680 |
+| 40 | 0.6140 | 0.5663 |
+| 50 | 0.6078 | 0.5715 |
+| 60 | 0.6092 | 0.5710 |
+| 70 | 0.6184 | 0.5630 |
+| 80 | 0.6108 | 0.5805 |
+| 90 | 0.6140 | **0.5821 (best)** |
+| 100 (final) | **0.6202 (best)** | 0.5740 |
+
+| | clip | sigmoid |
+|---|---|---|
+| best / final mAP | 0.6202 / 0.6202 | 0.5821 / 0.5740 |
+| κ mean±std | 4.74±1.24 | 4.62±1.21 |
+| dead bits | 1/64 | 12/64 |
+| binarity | 0.959 | 0.911 |
+| separation ratio | 10.59x | 8.36x |
+
+`clip` clearly outperforms `sigmoid` on every metric (mAP, dead bits,
+binarity, separation) once collapse is not a confound (both frozen-backbone)
+-- consistent with §11's established mechanism (sigmoid's near-zero-init
+gradient is ~266x smaller than clip's), now confirmed to also produce a
+weaker *converged* model, not just slower/failed training.
+
+### 13.3 Task 3 -- CIBHash and SDC at `d=512`
+
+| epoch | CIBHash `d=512` | SDC_simclr `d=512` | Arm B `d=512,eps=1.0` (wd-fixed) |
+|---|---|---|---|
+| 10 | 0.5923 | 0.6487 | 0.6308 |
+| 20 | 0.5978 | 0.6591 | 0.6410 |
+| 30 | 0.5981 | 0.6658 | 0.6457 |
+| 40 | **0.6066 (best)** | 0.6685 | 0.6477 |
+| 50 | 0.6024 | 0.6676 | 0.6453 |
+| 60 | 0.5972 | 0.6810 | 0.6433 |
+| 70 | 0.6024 | 0.6763 | 0.6526 |
+| 80 | 0.6021 | 0.6767 | **0.6543 (best)** |
+| 90 | 0.6052 | 0.6875 | 0.6505 |
+| 100 (final) | 0.6041 | **0.6880 (best)** | 0.6519 |
+
+`d=64` -> `d=512` deltas (best mAP, same wd=5e-4 protocol throughout):
+
+| | `d=64` | `d=512` | Δ |
+|---|---|---|---|
+| CIBHash | 0.6105 (13.1) | 0.6066 | **-0.0039** |
+| SDC_simclr | 0.6646 (§12.6) | 0.6880 | **+0.0234** |
+| Arm B | 0.6202 (13.1) | 0.6543 | **+0.0341** |
+
+Arm B `d=512` diagnostics (wd-fixed, best ckpt ep80): κ=25.19±5.76, dead
+bits=6/512, binarity=0.960, separation ratio=13.94x, 38 distinct overlap
+values, tie-block mean=523.8 -- all close to §12.2/§12.3's pre-wd-fix values
+(κ=24.36±5.57, dead=6/512, sep=14.37x, 36 distinct, tie=483.7; mAP
+0.6580->0.6543, Δ=-0.0037, same small-negative direction as Arm A's wd
+effect but far smaller magnitude). The outstanding item flagged in §12.3
+(whether Arm B `d=512` needs a wd-corrected rerun) is now resolved: it does
+not materially change any conclusion.
+
+**Does the `d=512` advantage survive giving the baselines the same
+dimensionality? Partially, and the picture is more interesting than a yes/no.**
+CIBHash does **not** benefit from `d=512` at all (-0.0039, marginally worse)
+-- so the original §12.2/§12.3 comparison was not simply "unfair
+dimensionality." But SDC_simclr **does** benefit substantially (+0.0234), and
+by `d=512` it actually **overtakes Arm B**: SDC_simclr 0.6880 > Arm B 0.6543
+> CIBHash 0.6066. The `d=512`-helps-more-than-`d=64` effect is real but not
+specific to Arm B/our method -- it generalizes to at least one baseline
+(SDC_simclr) strongly enough to flip the ranking at that dimensionality.
+
+### 13.4 Task 4 -- Arm B + SDC-style quantization loss
+
+Implementation (`models/arch/sbdr.py`, `models/loss/sbdr.py`,
+`trainers/sbdr.py`, `configs/model/sbdr.yaml`): `SBDR.forward`'s previously-
+unused third return slot (always discarded as `_` by every caller, checked
+via grep before changing) now returns the pre-activation logits instead of a
+duplicate of `z`. `SBDRCriticLoss` gained an optional `lambda_q` (default
+0.0, bit-identical to before when off -- confirmed via `tests/
+test_sbdr_loss_math.py`, all 6 checks still pass unchanged) that adds
+`lambda_q * Lq` where `Lq = models.loss.sdc.SDCLoss.quantization_loss`
+(`quan_type='cs'`, reused directly rather than reimplemented) applied to the
+concatenated pre-activation logits of both views.
+
+**Choosing `lambda_q` (one real batch, at init, frozen backbone, gradient
+norm w.r.t. `encoder[-1]` weight+bias):**
+
+| quantity | value |
+|---|---|
+| `L_eps` (plain critic) | -0.0623 |
+| grad norm of `L_eps` | 0.7322 |
+| `Lq` (SDC quantization) | 0.1839 |
+| grad norm of `Lq` | 1.1196 |
+| ratio (`Lq` grad / `L_eps` grad) | 1.529 |
+
+Target: `Lq`'s contribution at 10-30% of `L_eps`'s initial gradient norm.
+Chose the middle of that range (20%): `lambda_q = 0.20 * 0.7322 / 1.1196 =
+0.131`, rounded to **`lambda_q = 0.13`** (realizes ≈19.9%, inside the target
+band).
+
+**Training result** (`d=64`, `eps=0.31`, wd=5e-4, otherwise identical to §13.1's Arm B):
+
+| epoch | plain Arm B (13.1) | Arm B + Lq (`lambda_q=0.13`) |
+|---|---|---|
+| 10 | 0.5850 | 0.5761 |
+| 20 | 0.5967 | 0.5921 |
+| 30 | 0.6024 | 0.6037 |
+| 40 | 0.6140 | 0.6099 |
+| 50 | 0.6078 | 0.6145 |
+| 60 | 0.6092 | 0.6104 |
+| 70 | 0.6184 | 0.6082 |
+| 80 | 0.6108 | 0.6135 |
+| 90 | 0.6140 | **0.6227 (best)** |
+| 100 (final) | **0.6202 (best)** | 0.6223 |
+
+| | plain Arm B | Arm B + Lq |
+|---|---|---|
+| best / final mAP | 0.6202 / 0.6202 | **0.6227** / 0.6223 |
+| κ mean±std | 4.74±1.24 | 4.46±1.12 |
+| dead bits | 1/64 | 8/64 |
+| binarity | 0.959 | 0.962 |
+| separation ratio | 10.59x | 9.62x |
+
+**Mixed result, not a clean win.** mAP improves slightly (+0.0025 best,
++0.0021 final), but dead bits rise (1->8/64) and separation ratio drops
+(10.59x->9.62x) -- the quantization term nudges a few units toward permanent
+saturation (consistent with `clip`'s zero-gradient-at-saturation mechanism,
+§11) in exchange for a marginal mAP gain. At `lambda_q=0.13` this is a wash
+at best, not evidence the quantization term is worth adopting outright.

@@ -88,5 +88,10 @@ class SBDR(BaseNet):
             z = logits + (clipped - logits).detach()
 
         # no train/eval branch: z is deterministic and already the code in both
-        # modes (unlike CIBHash's sign-then-logits split, HANDOUT §1 table)
-        return x, z, z
+        # modes (unlike CIBHash's sign-then-logits split, HANDOUT §1 table).
+        # Third slot is the pre-activation logits (2026-09-05, HANDOUT §13
+        # Task 4) -- Arm B's continuous/unbounded code, analogous to SDC's `f`
+        # for the optional quantization-loss term. Always discarded as `_` by
+        # every existing caller (trainers/sbdr.py, experiments/sbdr_*.py), so
+        # this is safe to repurpose from the previous plain duplicate of `z`.
+        return x, z, logits

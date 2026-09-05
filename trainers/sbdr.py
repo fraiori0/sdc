@@ -93,9 +93,9 @@ class SBDRTrainer(BaseTrainer):
         # clear gradient
         self.optimizer.zero_grad()
 
-        _, z_i, _ = self.model(images_i)
-        _, z_j, _ = self.model(images_j)
-        loss = self.criterion(z_i, z_j)
+        _, z_i, logits_i = self.model(images_i)
+        _, z_j, logits_j = self.model(images_j)
+        loss = self.criterion(z_i, z_j, logits_i, logits_j)
 
         # backward and update
         loss.backward()

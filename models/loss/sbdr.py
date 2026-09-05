@@ -1,6 +1,7 @@
 import torch
 
 from models.loss.base import BaseLoss
+from models.loss.sdc import SDCLoss
 
 
 class SBDRCriticLoss(BaseLoss):
@@ -54,11 +55,19 @@ class SBDRCriticLoss(BaseLoss):
     """
 
     def __init__(self, eps=0.31, symmetric=True, detach_mean=False,
-                critic_order=1, lambda2=None, delta=0.0, **kwargs):
+                critic_order=1, lambda2=None, delta=0.0, lambda_q=0.0, **kwargs):
         super().__init__(**kwargs)
         self.eps = eps
         self.symmetric = symmetric
         self.detach_mean = detach_mean
+
+        # optional SDC-style quantization loss on the pre-activation logits
+        # (2026-09-05, HANDOUT §13 Task 4): Lq = mean(1 - cos(logits, sign(logits))),
+        # reusing models/loss/sdc.py's existing implementation rather than
+        # reimplementing it. Default 0.0 (off) -- bit-identical to the plain
+        # critic for every prior Arm B run, which never set this.
+        self.lambda_q = lambda_q
+        self._quant = SDCLoss(quan_type='cs') if lambda_q != 0.0 else None
 
         assert critic_order in (1, 2), f'critic_order must be 1 or 2, got {critic_order!r}'
         self.critic_order = critic_order
@@ -102,7 +111,7 @@ class SBDRCriticLoss(BaseLoss):
         t = t.clamp(min=self.eps / 2)
         return (t.log() - s.log()).mean()
 
-    def forward(self, z1, z2):
+    def forward(self, z1, z2, logits1=None, logits2=None):
         assert z1.min() >= -1e-6 and z1.max() <= 1 + 1e-6, \
             f'SBDRCriticLoss expects codes in [0,1], got z1 range [{z1.min():.4g}, {z1.max():.4g}]'
         assert z2.min() >= -1e-6 and z2.max() <= 1 + 1e-6, \
@@ -116,4 +125,14 @@ class SBDRCriticLoss(BaseLoss):
         self.losses['contrast'] = L
         # realised sparsity, matching the > 0.5 predicate used at eval (utils/hashing.py)
         self.losses['kappa'] = (z1 > 0.5).float().sum(1).mean()
-        return L
+
+        total = L
+        if self.lambda_q != 0.0:
+            assert logits1 is not None and logits2 is not None, \
+                'lambda_q != 0 requires logits1/logits2 (pre-activation, see models/arch/sbdr.py)'
+            logits_all = torch.cat([logits1, logits2], 0)
+            Lq = self._quant.quantization_loss(logits_all)
+            self.losses['quan'] = Lq
+            total = L + self.lambda_q * Lq
+
+        return total
