@@ -1,0 +1,33 @@
+# @package _global_
+# Arm C (HANDOUT.md §3, 2026-09-05): CIBHash arch + sampling unchanged, loss is
+# ONLY our critic on the probabilities `p` -- no CIBHash NtXent/KL at all
+# (contrast with Arm D's auxiliary combination, configs/model/sbdr_aux.yaml).
+# Mirrors cibhash.yaml exactly (arch, trainer, backbone, transforms) so mAP
+# stays comparable to Arm A/D -- only the criterion differs.
+defaults:
+  - override /transforms: cibhash
+  - override /backbone: vgg16
+  - _self_
+
+
+model:
+  _target_: models.arch.cibhash.CIBHash
+  backbone: ${backbone}
+  nbit: 64
+  nclass: ${dataset.nclass}
+
+trainer:
+  _target_: trainers.cibhash.CIBHashTrainer
+
+criterion:
+  _target_: models.loss.sbdr_c.CIBHashSBDROnlyLoss
+  eps: 0.31             # SBDR critic eps; d=64, kappa_target=8 -> eps ~= kappa^2/(3.24*d)
+  symmetric: True
+  detach_mean: False    # MUST NOT be True by default (HANDOUT §0.1) -- ablation only
+  critic_order: 1        # 1 = first-order (original) critic; 2 = + quadratic term
+  lambda2: null          # only used when critic_order=2; null -> default 1/(2*eps)
+
+# code_domain / dist_metric intentionally left at train.yaml's defaults
+# (signed / hamming): CIBHash's arch is unchanged for this arm, so the eval-time
+# `codes` key is still the raw pre-sigmoid logits (straddles 0), not a [0,1] code.
+# Setting code_domain: unit here would fail utils.hashing's domain guard.

@@ -99,7 +99,8 @@ class RetrievalEvaluation:
                                                               dist_metric=self.config.dist_metric,
                                                               code_domain=self.config.get('code_domain', 'signed'),
                                                               topk_eval=self.config.get('topk_eval'),
-                                                              PRs=self.config.PRs)
+                                                              PRs=self.config.PRs,
+                                                              multiclass=self.config.dataset.multiclass)
                     res['mAP' + postfix] = mAPs
                     res['recalls' + postfix] = recalls
                     res['precisions' + postfix] = precisions

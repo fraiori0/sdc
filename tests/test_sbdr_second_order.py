@@ -160,13 +160,75 @@ def test_gradient_flows_into_c_and_zbar():
     print(f'    z2.grad abs-sum = {z2.grad.abs().sum().item():.6f}')
 
 
+def test_gradient_reaches_c_and_zbar_directly():
+    """
+    Stronger than test_gradient_flows_into_c_and_zbar: recomputes _one_way's body
+    manually with `zbar`/`C` as explicit intermediates (`retain_grad()`), so the
+    gradient into each is inspected directly rather than only inferring it from a
+    nonzero total gradient at the leaves (2026-09-05, HANDOUT §14 Task 1).
+    """
+    torch.manual_seed(5)
+    N, d, eps, lambda2 = 6, 8, 0.31, 1.6
+    z1 = torch.rand(N, d, requires_grad=True)
+    z2 = torch.rand(N, d, requires_grad=True)
+    zall = torch.cat([z1, z2], 0)
+
+    zbar = zall.mean(0)
+    zbar.retain_grad()
+    K = zall.size(0)
+    C = zall.t().matmul(zall) / K
+    C.retain_grad()
+
+    t = (z1 * zbar).sum(1)
+    s = (z1 * z2).sum(1)
+    quad_t = (z1.matmul(C) * z1).sum(1)
+    t = t + lambda2 * quad_t
+    s = s + lambda2 * s.pow(2)
+    t = t + eps
+    s = s + eps
+    L = (t.log() - s.log()).mean()
+    L.backward()
+
+    assert zbar.grad is not None and zbar.grad.abs().sum().item() > 0, \
+        'z_bar is detached -- no gradient reached it'
+    assert C.grad is not None and C.grad.abs().sum().item() > 0, \
+        'C is detached -- no gradient reached it'
+    print(f'    zbar.grad abs-sum = {zbar.grad.abs().sum().item():.6f}  (nonzero -> not detached)')
+    print(f'    C.grad abs-sum    = {C.grad.abs().sum().item():.6f}  (nonzero -> not detached)')
+
+
+def test_degenerate_state_zero_loss_pinned_and_arbitrary_lambda2():
+    """
+    All-samples-identical degenerate state: L_i == 0.0 exactly for the PINNED
+    default lambda2 (1/(2*eps), not just a nearby round number) and one
+    arbitrary other value (2026-09-05, HANDOUT §14 Task 1 requirement #2).
+    """
+    d, kappa, eps = 64, 9, 0.31
+    idx = torch.randperm(d)[:kappa]
+    z_row = torch.zeros(d)
+    z_row[idx] = 1.0
+    N = 5
+    z1 = z_row.unsqueeze(0).repeat(N, 1).clone().requires_grad_(True)
+    z2 = z_row.unsqueeze(0).repeat(N, 1).clone()
+
+    pinned_default = 1.0 / (2.0 * eps)
+    for label, lambda2 in [('pinned default 1/(2*eps)', pinned_default),
+                          ('arbitrary other', 7.0)]:
+        loss = SBDRCriticLoss(eps=eps, critic_order=2, lambda2=lambda2, symmetric=True)
+        L = loss(z1, z2)
+        print(f'    lambda2={lambda2:.6f} ({label}): L={L.item():.3e}')
+        assert abs(L.item()) < 1e-6, (label, lambda2, L.item())
+
+
 def main():
     tests = [test_c_matrix_path_matches_naive_double_loop,
              test_c_matrix_quad_form_matches_naive_per_row,
              test_lambda2_zero_matches_order_1_exactly,
              test_lambda2_default_is_taylor_coefficient,
              test_nonzero_lambda2_changes_the_loss,
-             test_gradient_flows_into_c_and_zbar]
+             test_gradient_flows_into_c_and_zbar,
+             test_gradient_reaches_c_and_zbar_directly,
+             test_degenerate_state_zero_loss_pinned_and_arbitrary_lambda2]
     for t in tests:
         print(f'\n[{t.__name__}]')
         print(f'  {t.__doc__.strip()}' if t.__doc__ else '')

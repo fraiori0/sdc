@@ -36,11 +36,18 @@ class BaseTrainer:
     def load_criterion(self):
         self.criterion = hydra.utils.instantiate(self.config.criterion)
 
-    def finetune_setup(self, *args, **kwargs):
+    def finetune_setup(self, path, *args, **kwargs):
         """
-        for fine-tuning after pre-training
+        for fine-tuning after pre-training. Loads only the model weights from
+        `path` (a `models/*.pth` checkpoint) as a starting point for further
+        training; optimizer/scheduler state is left untouched here and is created
+        fresh afterward by `load_optimizer_and_scheduler` (called right after this
+        in `experiments/train_helper.py`'s init sequence). Previously an
+        unimplemented no-op despite `config.finetune_path` already being wired
+        through `main_v2.py` / `train_helper.py` -- completing it; does not change
+        behavior for any run that leaves `finetune_path` at its default `null`.
         """
-        pass
+        self.load_model_state(path)
 
     def get_learning_rate(self):
         if self.scheduler is None:
